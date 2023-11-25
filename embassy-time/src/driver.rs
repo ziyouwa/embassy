@@ -62,6 +62,12 @@ pub struct AlarmHandle {
 }
 
 impl AlarmHandle {
+    /// 生成AlarmHandle
+    ///
+    /// 安全提示：只能由当前全局driver impl调用。所有的“AlarmHandle”实例都是
+    /// 在不安全的代码中自行创建的，比如索引操作。
+    /// ---
+    ///
     /// Create an AlarmHandle
     ///
     /// Safety: May only be called by the current global Driver impl.
@@ -71,6 +77,8 @@ impl AlarmHandle {
         Self { id }
     }
 
+    /// 获取当前AlarmHandle实例的id
+    /// ---
     /// Get the ID of the AlarmHandle.
     pub fn id(&self) -> u8 {
         self.id
@@ -79,6 +87,16 @@ impl AlarmHandle {
 
 /// Time driver
 pub trait Driver: Send + Sync + 'static {
+    /// 以ticks（u64类型）的方式返回当前的时间戳
+    ///
+    /// 该函数的实现必须保证：
+    /// - 函数必须是单调增的，调用now()的返回值必须大于或
+    /// 等于前一次调用的返回值。时间不能“回到过去”。
+    /// - 不会溢出。在足够长的时间内不会溢出。比方说一万年
+    /// (一万年后人类社会应该都毁灭了)。这意味着如果硬件只
+    /// 有16/32位，必须扩展到64位，比如在软件层面处理溢出
+    /// 或是把多个计时器串联起来。
+    /// ---
     /// Return the current timestamp in ticks.
     ///
     /// Implementations MUST ensure that:
@@ -91,6 +109,12 @@ pub trait Driver: Send + Sync + 'static {
     ///   or chaining multiple timers together.
     fn now(&self) -> u64;
 
+    /// 尝试分配一个报警执行(AlarmHandle)，如果没有报警或分配失败则返回None。
+    /// 初始化时报警执行回调为空，返回空的`ctx`指针。
+    ///
+    /// # 安全提示
+    /// 在设置报警执行回调之前生成报警会导致未定义行为！
+    /// ---
     /// Try allocating an alarm handle. Returns None if no alarms left.
     /// Initially the alarm has no callback set, and a null `ctx` pointer.
     ///
@@ -98,10 +122,21 @@ pub trait Driver: Send + Sync + 'static {
     /// It is UB to make the alarm fire before setting a callback.
     unsafe fn allocate_alarm(&self) -> Option<AlarmHandle>;
 
+    /// 设置当报警触发时执行的回调函数。
+    /// 该回调函数可以被任意上下文调用(中断或线程模式)
     /// Sets the callback function to be called when the alarm triggers.
     /// The callback may be called from any context (interrupt or thread mode).
     fn set_alarm_callback(&self, alarm: AlarmHandle, callback: fn(*mut ()), ctx: *mut ());
 
+    /// 在给定的时间戳处设置警报。当前时间达到该时间戳时，提供的回调函数将被调用。
+    ///
+    /// 驱动实现应确保回调函数不会被`set_alarm`同步调用。如果时间戳的时间点已经过去，
+    /// 应该返回`false`并不设置警报，否则应该返回`true`并安排触发时调用，而不是同步调用。
+    ///
+    /// 如果回调被调用，now()确定会返回大于或等于给定的时间戳。
+    ///
+    /// 同一时刻每个`AlarmHandle`仅有一个警报会触发，以前如果有设置报警，将会被覆盖。
+    /// ---
     /// Sets an alarm at the given timestamp. When the current timestamp reaches the alarm
     /// timestamp, the provided callback function will be called.
     ///
